@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market VaR Dashboard (EWMA + Historical Simulation)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- SheetJS for Excel Parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#1e3a8a',
+                        secondary: '#475569',
+                        accent: '#3b82f6',
+                        danger: '#ef4444',
+                        success: '#10b981'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .tab-btn.active { border-bottom: 2px solid #3b82f6; color: #1e3a8a; font-weight: 600; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); z-index: 50; display: none;
+            justify-content: center; align-items: center; flex-direction: column;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6;
+            border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-slate-800 antialiased flex flex-col min-h-screen">
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="spinner mb-4"></div>
+        <div class="text-lg font-semibold text-primary">Calculating, please wait...</div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <i class="fa-solid fa-chart-line text-accent text-2xl mr-3"></i>
+                    <span class="font-bold text-xl text-primary tracking-tight">Market VaR</span>
+                </div>
+                <div class="flex space-x-8 mt-4 sm:mt-0 items-center overflow-x-auto">
+                    <button class="tab-btn active pb-4 px-1 text-sm font-medium text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="dashboard">
+                        <i class="fa-solid fa-border-all mr-1"></i> Dashboard
+                    </button>
+                    <button class="tab-btn pb-4 px-1 text-sm font-medium text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="trend">
+                        <i class="fa-solid fa-chart-area mr-1"></i> Trend
+                    </button>
+                    <button class="tab-btn pb-4 px-1 text-sm font-medium text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="upload">
+                        <i class="fa-solid fa-file-arrow-up mr-1"></i> Upload Data
+                    </button>
+                    <button class="tab-btn pb-4 px-1 text-sm font-medium text-slate-500 hover:text-slate-700 whitespace-nowrap" data-target="settings">
+                        <i class="fa-solid fa-gear mr-1"></i> Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+
+        <!-- TAB: Dashboard -->
+        <div id="dashboard" class="tab-content active space-y-6">
+            
+            <!-- Controls -->
+            <div class="flex flex-col sm:flex-row justify-between items-end sm:items-center bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800">Risk Overview</h2>
+                    <p class="text-sm text-slate-500">Based on EWMA Volatility Updating & Historical Simulation</p>
+                </div>
+                <div class="mt-4 sm:mt-0 flex items-center space-x-3">
+                    <label class="text-sm font-medium text-slate-700">As of Date:</label>
+                    <input type="date" id="as-of-date" class="border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+                    <button onclick="App.updateDashboard()" class="bg-accent text-white px-4 py-1.5 rounded-md text-sm font-medium hover:bg-blue-600 transition">Recalculate</button>
+                </div>
+            </div>
+
+            <!-- Detail Table -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-100 bg-slate-50">
+                    <h3 class="font-bold text-slate-800">Portfolio VaR & Risk Contributions (US$M)</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-slate-200">
+                        <thead class="bg-white">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-1/4">Asset / Category</th>
+                                <th class="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Position (US$M)</th>
+                                <th class="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">VaR (US$M)</th>
+                                <th class="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">VaR (%)</th>
+                                <th class="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider w-1/4">1Y Range (Low - Avg - Curr - High)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detail-table-body" class="bg-white divide-y divide-slate-200">
+                            <!-- Rows inserted by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Analysis Text -->
+            <div class="bg-indigo-50 rounded-xl p-6 border border-indigo-100">
+                <h3 class="text-lg font-bold text-indigo-900 mb-2"><i class="fa-solid fa-wand-magic-sparkles mr-2"></i>Analysis & Comparison</h3>
+                <p id="analysis-text" class="text-slate-700 leading-relaxed">
+                    Generating analysis report...
+                </p>
+            </div>
+        </div>
+
+        <!-- TAB: Trend -->
+        <div id="trend" class="tab-content space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 space-y-3 sm:space-y-0">
+                    <h2 class="text-xl font-bold text-slate-800">VaR Historical Trend</h2>
+                    <div class="flex items-center space-x-3">
+                        <label class="text-sm font-medium text-slate-700">End Date:</label>
+                        <input type="date" id="trend-as-of-date" class="border border-slate-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+                        <button onclick="App.renderTrendChart()" class="text-sm text-white bg-accent px-3 py-1.5 rounded hover:bg-blue-600 transition"><i class="fa-solid fa-arrows-rotate mr-1"></i>Refresh Chart</button>
+                    </div>
+                </div>
+                <div class="relative h-96 w-full">
+                    <canvas id="trendChart"></canvas>
+                </div>
+                <p class="text-xs text-slate-500 mt-4 text-center">Note: This chart recalculates historical VaR for the trailing 250 days from the selected End Date, showcasing the dynamic changes in risk exposure.</p>
+            </div>
+        </div>
+
+        <!-- TAB: Upload -->
+        <div id="upload" class="tab-content space-y-6">
+            <div class="bg-white p-8 rounded-xl shadow-sm border border-slate-100 max-w-5xl mx-auto">
+                <h2 class="text-2xl font-bold text-slate-800 mb-6 border-b pb-4">Upload Data Sources</h2>
+                
+                <div class="space-y-8">
+                    <!-- Fund Data -->
+                    <div class="relative border-2 border-dashed border-slate-300 rounded-lg p-6 transition-colors bg-white group" id="container-fund">
+                        <input type="file" id="upload-fund" accept=".csv, .xlsx, .xls" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20" 
+                            onchange="App.updateFileName(this, 'file-name-fund')"
+                            ondragover="document.getElementById('container-fund').classList.add('border-accent', 'bg-blue-50')"
+                            ondragleave="document.getElementById('container-fund').classList.remove('border-accent', 'bg-blue-50')"
+                            ondrop="document.getElementById('container-fund').classList.remove('border-accent', 'bg-blue-50')">
+                        
+                        <div class="flex items-center justify-between mb-2 relative z-30 pointer-events-none">
+                            <h3 class="text-lg font-bold text-slate-700"><i class="fa-solid fa-1 text-accent mr-2"></i>1. Fund Data</h3>
+                            <button onclick="App.downloadSample('fund')" class="text-xs text-blue-600 hover:text-blue-800 underline pointer-events-auto"><i class="fa-solid fa-download mr-1"></i>Download Sample</button>
+                        </div>
+                        <p class="text-sm text-slate-500 mb-3 relative z-10 pointer-events-none">Format required: Columns must be <code>Date</code>, <code>Fund</code>, <code>Field</code> (NAV/Deposit/Withdraw), <code>Amount</code>. Date format YYYY-MM-DD.</p>
+                        <div class="text-center relative z-10 pointer-events-none mt-4">
+                            <i class="fa-solid fa-cloud-arrow-up text-3xl text-slate-400 mb-2"></i>
+                            <p class="text-sm text-slate-600 font-medium">Drag and drop file here, or click to browse</p>
+                            <p class="text-sm font-semibold text-slate-400 mt-2" id="file-name-fund">No file selected</p>
+                        </div>
+                    </div>
+
+                    <!-- FX Position -->
+                    <div class="relative border-2 border-dashed border-slate-300 rounded-lg p-6 transition-colors bg-white group" id="container-fx-pos">
+                        <input type="file" id="upload-fx-pos" accept=".csv, .xlsx, .xls" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20" 
+                            onchange="App.updateFileName(this, 'file-name-fx-pos')"
+                            ondragover="document.getElementById('container-fx-pos').classList.add('border-accent', 'bg-blue-50')"
+                            ondragleave="document.getElementById('container-fx-pos').classList.remove('border-accent', 'bg-blue-50')"
+                            ondrop="document.getElementById('container-fx-pos').classList.remove('border-accent', 'bg-blue-50')">
+                        
+                        <div class="flex items-center justify-between mb-2 relative z-30 pointer-events-none">
+                            <h3 class="text-lg font-bold text-slate-700"><i class="fa-solid fa-2 text-accent mr-2"></i>2. FX Positions</h3>
+                            <button onclick="App.downloadSample('fxPos')" class="text-xs text-blue-600 hover:text-blue-800 underline pointer-events-auto"><i class="fa-solid fa-download mr-1"></i>Download Sample</button>
+                        </div>
+                        <p class="text-sm text-slate-500 mb-3 relative z-10 pointer-events-none">Format required: Columns must include <code>Date</code>, <code>USD</code>, <code>EUR</code>, <code>JPY</code>. Values are USD equivalent amounts.</p>
+                        <div class="text-center relative z-10 pointer-events-none mt-4">
+                            <i class="fa-solid fa-cloud-arrow-up text-3xl text-slate-400 mb-2"></i>
+                            <p class="text-sm text-slate-600 font-medium">Drag and drop file here, or click to browse</p>
+                            <p class="text-sm font-semibold text-slate-400 mt-2" id="file-name-fx-pos">No file selected</p>
+                        </div>
+                    </div>
+
+                    <!-- FX Market Data -->
+                    <div class="relative border-2 border-dashed border-slate-300 rounded-lg p-6 transition-colors bg-white group" id="container-fx-mkt">
+                        <input type="file" id="upload-fx-mkt" accept=".csv, .xlsx, .xls" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20" 
+                            onchange="App.updateFileName(this, 'file-name-fx-mkt')"
+                            ondragover="document.getElementById('container-fx-mkt').classList.add('border-accent', 'bg-blue-50')"
+                            ondragleave="document.getElementById('container-fx-mkt').classList.remove('border-accent', 'bg-blue-50')"
+                            ondrop="document.getElementById('container-fx-mkt').classList.remove('border-accent', 'bg-blue-50')">
+                        
+                        <div class="flex items-center justify-between mb-2 relative z-30 pointer-events-none">
+                            <h3 class="text-lg font-bold text-slate-700"><i class="fa-solid fa-3 text-accent mr-2"></i>3. FX Market Data</h3>
+                            <button onclick="App.downloadSample('fxMkt')" class="text-xs text-blue-600 hover:text-blue-800 underline pointer-events-auto"><i class="fa-solid fa-download mr-1"></i>Download Sample</button>
+                        </div>
+                        <p class="text-sm text-slate-500 mb-3 relative z-10 pointer-events-none">Format required: Columns must include <code>Date</code>, <code>USD</code> (USD/TWD), <code>EUR</code> (EUR/USD), <code>JPY</code> (JPY/USD).</p>
+                        <div class="text-center relative z-10 pointer-events-none mt-4">
+                            <i class="fa-solid fa-cloud-arrow-up text-3xl text-slate-400 mb-2"></i>
+                            <p class="text-sm text-slate-600 font-medium">Drag and drop file here, or click to browse</p>
+                            <p class="text-sm font-semibold text-slate-400 mt-2" id="file-name-fx-mkt">No file selected</p>
+                        </div>
+                    </div>
+
+                    <div class="pt-6 border-t border-slate-200 flex justify-end space-x-4 relative z-30">
+                        <button onclick="App.resetToMockData()" class="px-5 py-2 border border-slate-300 rounded-md text-slate-600 hover:bg-slate-50 font-medium transition">
+                            Load Default Mock Data
+                        </button>
+                        <button onclick="App.processUploads()" class="px-5 py-2 bg-primary text-white rounded-md hover:bg-blue-800 font-medium transition shadow-sm">
+                            <i class="fa-solid fa-cloud-arrow-up mr-2"></i>Parse & Apply Data
+                        </button>
+                    </div>
+
+                    <!-- Imported Data Preview Section -->
+                    <div id="data-preview-container" class="hidden mt-8 pt-6 border-t border-slate-200">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-bold text-slate-700"><i class="fa-solid fa-table border border-slate-300 p-1 rounded mr-2"></i>Imported Data Preview</h3>
+                            <div class="space-x-2">
+                                <button onclick="App.copyData('fund')" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded border border-slate-300 transition"><i class="fa-regular fa-copy mr-1"></i>Copy Fund Data</button>
+                                <button onclick="App.copyData('fxPos')" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded border border-slate-300 transition"><i class="fa-regular fa-copy mr-1"></i>Copy FX Pos</button>
+                                <button onclick="App.copyData('fxMkt')" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded border border-slate-300 transition"><i class="fa-regular fa-copy mr-1"></i>Copy FX Mkt</button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <div class="text-xs font-semibold text-slate-600 mb-1">Fund Data (Top 50)</div>
+                                <div class="border border-slate-200 rounded-md p-2 bg-slate-50 text-[10px] overflow-auto h-64 whitespace-pre font-mono" id="preview-fund"></div>
+                            </div>
+                            <div>
+                                <div class="text-xs font-semibold text-slate-600 mb-1">FX Positions (Top 50)</div>
+                                <div class="border border-slate-200 rounded-md p-2 bg-slate-50 text-[10px] overflow-auto h-64 whitespace-pre font-mono" id="preview-fxPos"></div>
+                            </div>
+                            <div>
+                                <div class="text-xs font-semibold text-slate-600 mb-1">FX Market Data (Top 50)</div>
+                                <div class="border border-slate-200 rounded-md p-2 bg-slate-50 text-[10px] overflow-auto h-64 whitespace-pre font-mono" id="preview-fxMkt"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Settings -->
+        <div id="settings" class="tab-content space-y-6">
+            <div class="bg-white p-8 rounded-xl shadow-sm border border-slate-100 max-w-2xl mx-auto">
+                <h2 class="text-2xl font-bold text-slate-800 mb-6 border-b pb-4">VaR Methodology Settings</h2>
+                
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">EWMA Decay Factor (Lambda, λ)</label>
+                        <input type="number" id="set-lambda" step="0.01" min="0.8" max="0.99" value="0.94" class="w-full border border-slate-300 rounded-md px-3 py-2 focus:ring-accent focus:border-accent">
+                        <p class="text-xs text-slate-500 mt-1">RiskMetrics default is 0.94. Lower value means more weight on recent volatility.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Historical Simulation Lookback Window</label>
+                        <input type="number" id="set-lookback" step="10" min="100" max="1000" value="250" class="w-full border border-slate-300 rounded-md px-3 py-2 focus:ring-accent focus:border-accent">
+                        <p class="text-xs text-slate-500 mt-1">Number of historical days used for simulation, typically 250 (approx. 1 year) or 500 days.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Confidence Level</label>
+                        <select id="set-confidence" class="w-full border border-slate-300 rounded-md px-3 py-2 focus:ring-accent focus:border-accent">
+                            <option value="0.95">95%</option>
+                            <option value="0.99" selected>99%</option>
+                            <option value="0.999">99.9%</option>
+                        </select>
+                        <p class="text-xs text-slate-500 mt-1">Determines the percentile for VaR extraction.</p>
+                    </div>
+                    
+                    <div class="pt-4 flex justify-end">
+                        <button onclick="App.saveSettings()" class="bg-primary text-white px-6 py-2 rounded-md font-medium hover:bg-blue-800 transition">
+                            Save & Recalculate
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="bg-white border-t border-slate-200 mt-auto py-6">
+        <div class="max-w-7xl mx-auto px-4 text-center text-sm text-slate-500">
+            &copy; 2026 Portfolio Risk Analytics. Methodology based on John Hull's Risk Management.
+        </div>
+    </footer>
+
+    <script>
+        // --- Core App State & Logic ---
+        const App = {
+            state: {
+                dates: [], // YYYY-MM-DD
+                assets: {}, // { name: { type: 'fund'|'fx', returns: [], prices: [], positions: [], ewmaVars: [] } }
+                rawData: { fund: null, fxPos: null, fxMkt: null }, // Store raw JSON for preview/copy
+                settings: {
+                    lambda: 0.94,
+                    lookback: 250,
+                    confidence: 0.99
+                },
+                currentDateIndex: 0,
+                trendData: { dates: [], total: [], fund: [], fx: [] },
+                chartInstance: null
+            },
+
+            // Format helpers
+            formatAmt: (num) => {
+                if(num === undefined || isNaN(num)) return '-';
+                return (num / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            },
+            formatPct: (num) => {
+                if(num === undefined || isNaN(num)) return '-';
+                return (num * 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+            },
+            showLoading: () => document.getElementById('loading-overlay').style.display = 'flex',
+            hideLoading: () => document.getElementById('loading-overlay').style.display = 'none',
+
+            // Init App
+            init: async () => {
+                App.setupTabs();
+                App.showLoading();
+                
+                // Load mock data if no upload
+                await App.generateMockData();
+                
+                App.processDataAlignments();
+                App.precalculateEWMA();
+                
+                // Set default dates
+                const dateInput = document.getElementById('as-of-date');
+                const trendDateInput = document.getElementById('trend-as-of-date');
+                const lastDate = App.state.dates[App.state.dates.length - 1];
+                const minDate = App.state.dates[App.state.settings.lookback];
+
+                dateInput.max = lastDate; dateInput.min = minDate; dateInput.value = lastDate;
+                trendDateInput.max = lastDate; trendDateInput.min = minDate; trendDateInput.value = lastDate;
+
+                await App.updateDashboard();
+                App.hideLoading();
+            },
+
+            setupTabs: () => {
+                const btns = document.querySelectorAll('.tab-btn');
+                const contents = document.querySelectorAll('.tab-content');
+                btns.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        btns.forEach(b => b.classList.remove('active', 'text-primary', 'border-b-2', 'border-primary'));
+                        contents.forEach(c => c.classList.remove('active'));
+                        btn.classList.add('active', 'text-primary', 'border-b-2', 'border-primary');
+                        document.getElementById(btn.dataset.target).classList.add('active');
+                        
+                        if(btn.dataset.target === 'trend' && App.state.trendData.dates.length === 0) {
+                            App.renderTrendChart();
+                        }
+                    });
+                });
+            },
+
+            // --- Core Algorithm: VaR Calculation (Hull Volatility Updating Historical Simulation) ---
+            calculateVaRForDate: (dateIndex, lookback, confidence, specificType = null, getComponents = false) => {
+                if (dateIndex < lookback) return null; // Insufficient history
+
+                const assets = Object.keys(App.state.assets);
+                const simulatedLosses = [];
+                const componentsMap = {}; // Record individual asset VaR
+
+                for (let i = 0; i < lookback; i++) {
+                    const histIndex = dateIndex - lookback + i;
+                    let totalLoss = 0;
+                    let typeLoss = 0;
+
+                    assets.forEach(asset => {
+                        const data = App.state.assets[asset];
+                        const currentPosition = data.positions[dateIndex];
+                        if (currentPosition <= 0) return; // Skip zero positions
+
+                        // Volatility Scaling (Hull's Method)
+                        const currentVol = Math.sqrt(data.ewmaVars[dateIndex - 1] || 0.0001); // t-1 EWMA as expected volatility for t
+                        const histVol = Math.sqrt(data.ewmaVars[histIndex - 1] || currentVol);
+                        
+                        let rawReturn = data.returns[histIndex];
+                        // Scale return
+                        let scaledReturn = rawReturn * (currentVol / histVol);
+                        
+                        // Simulate tomorrow's price and loss
+                        let simulatedLoss = currentPosition - (currentPosition * Math.exp(scaledReturn));
+                        
+                        totalLoss += simulatedLoss;
+                        
+                        if (specificType && data.type === specificType) {
+                            typeLoss += simulatedLoss;
+                        }
+
+                        if (getComponents) {
+                            if (!componentsMap[asset]) componentsMap[asset] = [];
+                            componentsMap[asset].push(simulatedLoss);
+                        }
+                    });
+
+                    simulatedLosses.push(specificType ? typeLoss : totalLoss);
+                }
+
+                // Sort and find percentile
+                simulatedLosses.sort((a, b) => b - a);
+                const percentileIndex = lookback * (1 - confidence);
+                // Linear interpolation
+                const idx1 = Math.floor(percentileIndex);
+                const idx2 = Math.ceil(percentileIndex);
+                let varAmount = 0;
+                if(idx1 === idx2) {
+                    varAmount = simulatedLosses[idx1];
+                } else {
+                    const weight = percentileIndex - idx1;
+                    varAmount = simulatedLosses[idx1] * (1 - weight) + simulatedLosses[idx2] * weight;
+                }
+
+                // Return individual components if requested
+                let componentsVaR = {};
+                if (getComponents) {
+                    for (let asset in componentsMap) {
+                        componentsMap[asset].sort((a, b) => b - a);
+                        componentsVaR[asset] = componentsMap[asset][idx1] * (1 - (percentileIndex - idx1)) + (componentsMap[asset][idx2] || 0) * (percentileIndex - idx1);
+                    }
+                    return { total: Math.max(0, varAmount), components: componentsVaR };
+                }
+
+                return Math.max(0, varAmount); // VaR typically non-negative
+            },
+
+            // Pre-calculate EWMA Variance for all assets
+            precalculateEWMA: () => {
+                const lambda = App.state.settings.lambda;
+                for (const key in App.state.assets) {
+                    const asset = App.state.assets[key];
+                    asset.ewmaVars = new Array(asset.returns.length).fill(0);
+                    
+                    // Init Variance (Sample var of first 30 days)
+                    let sumSq = 0;
+                    let initDays = Math.min(30, asset.returns.length);
+                    for(let i=0; i<initDays; i++) sumSq += asset.returns[i] * asset.returns[i];
+                    asset.ewmaVars[initDays-1] = sumSq / initDays || 0.0001;
+
+                    // Recursive EWMA calculation
+                    for (let i = initDays; i < asset.returns.length; i++) {
+                        const prevVar = asset.ewmaVars[i - 1];
+                        const prevRet = asset.returns[i - 1];
+                        asset.ewmaVars[i] = lambda * prevVar + (1 - lambda) * (prevRet * prevRet);
+                    }
+                }
+            },
+
+            // --- Dashboard Update ---
+            updateDashboard: async () => {
+                App.showLoading();
+                // Allow UI thread to render loading state
+                await new Promise(r => setTimeout(r, 50)); 
+
+                const dateStr = document.getElementById('as-of-date').value;
+                const dateIndex = App.state.dates.indexOf(dateStr);
+                if (dateIndex === -1 || dateIndex < App.state.settings.lookback) {
+                    alert("Invalid date selected or insufficient history to calculate VaR (Need at least " + App.state.settings.lookback + " days).");
+                    App.hideLoading();
+                    return;
+                }
+                App.state.currentDateIndex = dateIndex;
+
+                const { lookback, confidence } = App.state.settings;
+
+                // 1. Calc total VaR and component VaR
+                const varResult = App.calculateVaRForDate(dateIndex, lookback, confidence, null, true);
+                const totalVaR = varResult.total;
+                const fundVaR = App.calculateVaRForDate(dateIndex, lookback, confidence, 'fund');
+                const fxVaR = App.calculateVaRForDate(dateIndex, lookback, confidence, 'fx');
+
+                // 2. Calc historical 1Y range statistics (sample every 2 days for performance)
+                const startRange = Math.max(lookback, dateIndex - 250);
+                const hist = { total: {min: Infinity, max: 0, sum: 0, count: 0}, fund: {min: Infinity, max: 0, sum: 0, count: 0}, fx: {min: Infinity, max: 0, sum: 0, count: 0}, assets: {} };
+                
+                for (let d = startRange; d <= dateIndex; d += 2) {
+                    const rAll = App.calculateVaRForDate(d, lookback, confidence, null, true);
+                    const rFund = App.calculateVaRForDate(d, lookback, confidence, 'fund');
+                    const rFx = App.calculateVaRForDate(d, lookback, confidence, 'fx');
+                    
+                    if(!rAll) continue;
+
+                    if(rAll.total < hist.total.min) hist.total.min = rAll.total;
+                    if(rAll.total > hist.total.max) hist.total.max = rAll.total;
+                    hist.total.sum += rAll.total; hist.total.count++;
+
+                    if(rFund < hist.fund.min) hist.fund.min = rFund;
+                    if(rFund > hist.fund.max) hist.fund.max = rFund;
+                    hist.fund.sum += rFund; hist.fund.count++;
+
+                    if(rFx < hist.fx.min) hist.fx.min = rFx;
+                    if(rFx > hist.fx.max) hist.fx.max = rFx;
+                    hist.fx.sum += rFx; hist.fx.count++;
+
+                    for(let a in rAll.components) {
+                        if(!hist.assets[a]) hist.assets[a] = {min: Infinity, max: 0, sum: 0, count: 0};
+                        let v = rAll.components[a];
+                        if(v < hist.assets[a].min) hist.assets[a].min = v;
+                        if(v > hist.assets[a].max) hist.assets[a].max = v;
+                        hist.assets[a].sum += v; hist.assets[a].count++;
+                    }
+                }
+
+                const calcAvg = (h) => h.count > 0 ? h.sum / h.count : 0;
+                const fixMin = (h) => h.min === Infinity ? 0 : h.min;
+
+                // 3. Summarize positions
+                let totalPos = 0, fundPos = 0, fxPos = 0;
+                const fundAssets = [];
+                const fxAssets = [];
+                
+                for (const asset in App.state.assets) {
+                    const pos = App.state.assets[asset].positions[dateIndex];
+                    if (pos > 0) {
+                        totalPos += pos;
+                        const aData = {
+                            name: asset,
+                            position: pos,
+                            varAmt: varResult.components[asset] || 0,
+                            varPct: (varResult.components[asset] || 0) / pos,
+                            min: hist.assets[asset] ? fixMin(hist.assets[asset]) : 0,
+                            max: hist.assets[asset] ? hist.assets[asset].max : 0,
+                            avg: hist.assets[asset] ? calcAvg(hist.assets[asset]) : 0
+                        };
+
+                        if (App.state.assets[asset].type === 'fund') {
+                            fundPos += pos;
+                            fundAssets.push(aData);
+                        } else {
+                            fxPos += pos;
+                            fxAssets.push(aData);
+                        }
+                    }
+                }
+
+                fundAssets.sort((a,b) => b.position - a.position);
+                fxAssets.sort((a,b) => b.position - a.position);
+
+                // Update Table
+                const tbody = document.getElementById('detail-table-body');
+                tbody.innerHTML = '';
+                
+                const buildRow = (name, isBold, pos, vAmt, min, max, avg, icon, paddingClass, bgClass) => {
+                    const tr = document.createElement('tr');
+                    tr.className = `${bgClass} transition`;
+                    const nameCell = `<div class="flex items-center ${paddingClass}">${icon}<span class="${isBold ? 'font-bold text-slate-800' : 'text-slate-700'}">${name}</span></div>`;
+                    tr.innerHTML = `
+                        <td class="px-6 py-3 whitespace-nowrap text-sm border-b border-slate-100">${nameCell}</td>
+                        <td class="px-6 py-3 whitespace-nowrap text-sm text-right font-medium text-slate-700 border-b border-slate-100">${App.formatAmt(pos)}</td>
+                        <td class="px-6 py-3 whitespace-nowrap text-sm text-right ${isBold ? 'font-bold text-slate-900' : 'font-medium text-slate-800'} border-b border-slate-100">${App.formatAmt(vAmt)}</td>
+                        <td class="px-6 py-3 whitespace-nowrap text-sm text-right text-slate-500 border-b border-slate-100">${App.formatPct(vAmt/pos)}</td>
+                        <td class="px-6 py-3 whitespace-nowrap text-sm border-b border-slate-100">${App.renderRangeBar(min, max, avg, vAmt)}</td>
+                    `;
+                    return tr;
+                };
+
+                // Insert Total Row
+                tbody.appendChild(buildRow('Total Market VaR', true, totalPos, totalVaR, fixMin(hist.total), hist.total.max, calcAvg(hist.total), '<i class="fa-solid fa-earth-americas text-primary mr-2"></i>', '', 'bg-slate-100'));
+                
+                // Insert Fund Section
+                tbody.appendChild(buildRow('Total Fund VaR', true, fundPos, fundVaR, fixMin(hist.fund), hist.fund.max, calcAvg(hist.fund), '<i class="fa-solid fa-layer-group text-primary mr-2 text-sm"></i>', 'pl-4', 'bg-blue-50/40'));
+                fundAssets.forEach(a => tbody.appendChild(buildRow(a.name, false, a.position, a.varAmt, a.min, a.max, a.avg, '<i class="fa-solid fa-cube text-slate-400 mr-2 text-xs"></i>', 'pl-10', 'hover:bg-slate-50 bg-white')));
+
+                // Insert FX Section
+                tbody.appendChild(buildRow('Total FX VaR', true, fxPos, fxVaR, fixMin(hist.fx), hist.fx.max, calcAvg(hist.fx), '<i class="fa-solid fa-coins text-success mr-2 text-sm"></i>', 'pl-4', 'bg-green-50/40'));
+                fxAssets.forEach(a => tbody.appendChild(buildRow(a.name, false, a.position, a.varAmt, a.min, a.max, a.avg, '<i class="fa-solid fa-money-bill-1-wave text-slate-400 mr-2 text-xs"></i>', 'pl-10', 'hover:bg-slate-50 bg-white')));
+
+                // Generate MoM Analysis
+                App.generateMoMAnalysis(dateIndex, totalVaR, [...fundAssets, ...fxAssets]);
+
+                App.hideLoading();
+            },
+
+            generateMoMAnalysis: (currDateIndex, currTotalVaR, currentRows) => {
+                // Find 21 days ago (approx 1 business month)
+                const prevDateIndex = Math.max(App.state.settings.lookback, currDateIndex - 21);
+                const prevTotalVaR = App.calculateVaRForDate(prevDateIndex, App.state.settings.lookback, App.state.settings.confidence);
+                const prevDateStr = App.state.dates[prevDateIndex];
+                
+                let text = `As of <strong>${App.state.dates[currDateIndex]}</strong>, the Total Market VaR stands at <strong>$${App.formatAmt(currTotalVaR)}M</strong>.<br>`;
+                
+                if (prevTotalVaR) {
+                    const pctChange = ((currTotalVaR - prevTotalVaR) / prevTotalVaR) * 100;
+                    const direction = pctChange >= 0 ? "increased" : "decreased";
+                    const colorClass = pctChange >= 0 ? "text-danger" : "text-success";
+                    text += `Compared to last month (${prevDateStr}) at $${App.formatAmt(prevTotalVaR)}M, the total portfolio risk has <span class="font-bold ${colorClass}">${direction} by ${Math.abs(pctChange).toFixed(2)}%</span>.`;
+                }
+
+                // Find top contributor
+                if (currentRows.length > 0) {
+                    const topContributor = currentRows.reduce((prev, current) => (prev.varAmt > current.varAmt) ? prev : current);
+                    text += `<br>The highest risk contributor currently is <strong>${topContributor.name}</strong>, with a standalone VaR of $${App.formatAmt(topContributor.varAmt)}M (representing ${App.formatPct(topContributor.varPct)} of its exposure).`;
+                }
+
+                document.getElementById('analysis-text').innerHTML = text;
+            },
+
+            // --- Trend Chart ---
+            renderTrendChart: async () => {
+                App.showLoading();
+                await new Promise(r => setTimeout(r, 50)); 
+
+                const { lookback, confidence } = App.state.settings;
+                const dateStr = document.getElementById('trend-as-of-date').value || App.state.dates[App.state.dates.length - 1];
+                let endDateIdx = App.state.dates.indexOf(dateStr);
+                
+                if (endDateIdx === -1 || endDateIdx < lookback) {
+                    alert("Invalid date or insufficient history for trend.");
+                    endDateIdx = App.state.dates.length - 1;
+                    document.getElementById('trend-as-of-date').value = App.state.dates[endDateIdx];
+                }
+
+                // Trailing 250 days data
+                const startIdx = Math.max(lookback, endDateIdx - 250);
+                
+                const labels = [];
+                const totalData = [];
+                const fundData = [];
+                const fxData = [];
+
+                // Sample every 5 days for performance
+                const step = 5; 
+                for (let i = startIdx; i <= endDateIdx; i += step) {
+                    labels.push(App.state.dates[i]);
+                    totalData.push(App.calculateVaRForDate(i, lookback, confidence) / 1e6);
+                    fundData.push(App.calculateVaRForDate(i, lookback, confidence, 'fund') / 1e6);
+                    fxData.push(App.calculateVaRForDate(i, lookback, confidence, 'fx') / 1e6);
+                }
+
+                App.state.trendData = { dates: labels, total: totalData, fund: fundData, fx: fxData };
+
+                const ctx = document.getElementById('trendChart').getContext('2d');
+                if (App.state.chartInstance) {
+                    App.state.chartInstance.destroy();
+                }
+
+                App.state.chartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Total Portfolio VaR',
+                                data: totalData,
+                                borderColor: '#ef4444',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.4
+                            },
+                            {
+                                label: 'Fund VaR',
+                                data: fundData,
+                                borderColor: '#3b82f6',
+                                borderWidth: 2,
+                                tension: 0.4
+                            },
+                            {
+                                label: 'FX VaR',
+                                data: fxData,
+                                borderColor: '#10b981',
+                                borderWidth: 2,
+                                tension: 0.4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            tooltip: { callbacks: { label: function(context) { return context.dataset.label + ': $' + context.parsed.y.toFixed(2) + 'M'; } } }
+                        },
+                        scales: {
+                            y: { beginAtZero: true, title: { display: true, text: 'VaR (US$ Millions)' } },
+                            x: { ticks: { maxTicksLimit: 12 } }
+                        }
+                    }
+                });
+
+                App.hideLoading();
+            },
+
+            // --- Settings ---
+            saveSettings: () => {
+                App.state.settings.lambda = parseFloat(document.getElementById('set-lambda').value);
+                App.state.settings.lookback = parseInt(document.getElementById('set-lookback').value);
+                App.state.settings.confidence = parseFloat(document.getElementById('set-confidence').value);
+                
+                App.precalculateEWMA();
+                App.updateDashboard();
+                if(document.getElementById('trend').classList.contains('active')) {
+                    App.renderTrendChart();
+                }
+                alert('Settings saved and recalculated successfully!');
+            },
+
+            // --- Data Processing & Simulation ---
+            
+            // Time alignment and unit calculation
+            processDataAlignments: () => {
+                // Sort and deduplicate dates
+                App.state.dates = [...new Set(App.state.dates)].sort();
+                const totalDays = App.state.dates.length;
+                const dateToIndex = {};
+                App.state.dates.forEach((d, i) => dateToIndex[d] = i);
+
+                // Calc Returns & Positions
+                for (const assetName in App.state.assets) {
+                    const asset = App.state.assets[assetName];
+                    const positions = new Array(totalDays).fill(0);
+                    const prices = new Array(totalDays).fill(0);
+                    const returns = new Array(totalDays).fill(0);
+
+                    // Forward fill prices & basic calculations
+                    let lastPrice = asset.rawPrices[App.state.dates[0]] || 100;
+                    let currentUnits = 0;
+
+                    for (let i = 0; i < totalDays; i++) {
+                        const date = App.state.dates[i];
+                        
+                        // Price handling
+                        if (asset.rawPrices[date]) {
+                            lastPrice = asset.rawPrices[date];
+                        }
+                        prices[i] = lastPrice;
+
+                        // Calculate returns (log return)
+                        if (i > 0) {
+                            returns[i] = Math.log(prices[i] / prices[i - 1]) || 0;
+                        }
+
+                        // Position & Units handling
+                        if (asset.type === 'fund') {
+                            // Fund uses units based on Deposit/Withdraw
+                            if (asset.transactions[date]) {
+                                asset.transactions[date].forEach(tx => {
+                                    if (tx.field === 'Deposit') currentUnits += tx.amount / prices[i];
+                                    if (tx.field === 'Withdraw') currentUnits -= tx.amount / prices[i];
+                                    // NAV field is already handled in rawPrices
+                                });
+                            }
+                            positions[i] = currentUnits * prices[i];
+                        } else if (asset.type === 'fx') {
+                            // FX uses direct position amounts given in market data alignment
+                            let pos = asset.rawPositions[date] !== undefined ? asset.rawPositions[date] : (i>0 ? positions[i-1] : 0);
+                            positions[i] = pos;
+                        }
+                    }
+
+                    asset.prices = prices;
+                    asset.returns = returns;
+                    asset.positions = positions;
+                }
+            },
+
+            generateMockData: async () => {
+                // Generate business days for the past 800 days
+                const dates = [];
+                let d = new Date('2023-01-01');
+                const endDate = new Date('2026-05-01');
+                while (d <= endDate) {
+                    if (d.getDay() !== 0 && d.getDay() !== 6) {
+                        dates.push(d.toISOString().split('T')[0]);
+                    }
+                    d.setDate(d.getDate() + 1);
+                }
+                App.state.dates = dates;
+
+                App.state.assets = {
+                    'Global Equity Fund': { type: 'fund', rawPrices: {}, transactions: {}, rawPositions: {} },
+                    'Tech Growth Fund': { type: 'fund', rawPrices: {}, transactions: {}, rawPositions: {} },
+                    'Emerging Market Fund': { type: 'fund', rawPrices: {}, transactions: {}, rawPositions: {} },
+                    'US Treasury Fund': { type: 'fund', rawPrices: {}, transactions: {}, rawPositions: {} },
+                    'High Yield Bond Fund': { type: 'fund', rawPrices: {}, transactions: {}, rawPositions: {} },
+                    'USD (vs TWD)': { type: 'fx', rawPrices: {}, transactions: {}, rawPositions: {} },
+                    'EUR (vs USD)': { type: 'fx', rawPrices: {}, transactions: {}, rawPositions: {} },
+                    'JPY (vs USD)': { type: 'fx', rawPrices: {}, transactions: {}, rawPositions: {} }
+                };
+
+                // Random walk generation function
+                const generateRandomWalk = (start, vol, drift) => {
+                    let val = start;
+                    const res = [];
+                    for(let i=0; i<dates.length; i++) {
+                        const u1 = Math.random(), u2 = Math.random();
+                        const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2); // Box-Muller
+                        val = val * Math.exp(drift - 0.5 * vol * vol + vol * z);
+                        res.push(val);
+                    }
+                    return res;
+                };
+
+                // Generate price series for each asset
+                const fundVols = [0.012, 0.018, 0.015, 0.003, 0.006];
+                ['Global Equity Fund', 'Tech Growth Fund', 'Emerging Market Fund', 'US Treasury Fund', 'High Yield Bond Fund'].forEach((f, i) => {
+                    const prices = generateRandomWalk(100, fundVols[i], 0.0002);
+                    dates.forEach((d, idx) => { App.state.assets[f].rawPrices[d] = prices[idx]; });
+                    
+                    // Simulate transactions (Deposit/Withdraw)
+                    App.state.assets[f].transactions[dates[10]] = [{field: 'Deposit', amount: (i+1)*5_000_000}]; // Initial injection
+                    if(i % 2 === 0) App.state.assets[f].transactions[dates[300]] = [{field: 'Deposit', amount: 2_000_000}];
+                    if(i % 3 === 0) App.state.assets[f].transactions[dates[500]] = [{field: 'Withdraw', amount: 1_000_000}];
+                });
+
+                // Generate FX data
+                const usdPrices = generateRandomWalk(31.5, 0.004, 0); // USD/TWD
+                const eurPrices = generateRandomWalk(1.08, 0.005, 0); // EUR/USD
+                const jpyPrices = generateRandomWalk(150, 0.006, 0); // JPY/USD Volatility proxy
+
+                dates.forEach((d, idx) => {
+                    App.state.assets['USD (vs TWD)'].rawPrices[d] = usdPrices[idx];
+                    App.state.assets['EUR (vs USD)'].rawPrices[d] = eurPrices[idx];
+                    App.state.assets['JPY (vs USD)'].rawPrices[d] = jpyPrices[idx]; 
+
+                    // Fixed Positions
+                    App.state.assets['USD (vs TWD)'].rawPositions[d] = 12_000_000;
+                    App.state.assets['EUR (vs USD)'].rawPositions[d] = 5_000_000;
+                    App.state.assets['JPY (vs USD)'].rawPositions[d] = 3_500_000;
+                });
+            },
+
+            resetToMockData: async () => {
+                document.getElementById('data-preview-container').classList.add('hidden');
+                App.state.rawData = { fund: null, fxPos: null, fxMkt: null };
+                await App.init();
+                document.querySelector('[data-target="dashboard"]').click();
+            },
+
+            // --- Read Uploaded Excel Files ---
+            processUploads: async () => {
+                const fundFile = document.getElementById('upload-fund').files[0];
+                const fxPosFile = document.getElementById('upload-fx-pos').files[0];
+                const fxMktFile = document.getElementById('upload-fx-mkt').files[0];
+
+                if (!fundFile || !fxPosFile || !fxMktFile) {
+                    alert("Please upload all three files (Fund, FX Position, FX Market Data) to build the portfolio.");
+                    return;
+                }
+
+                App.showLoading();
+
+                try {
+                    const fundDataRaw = await App.readExcel(fundFile);
+                    const fxPosDataRaw = await App.readExcel(fxPosFile);
+                    const fxMktDataRaw = await App.readExcel(fxMktFile);
+
+                    // Store raw data for preview and copy
+                    App.state.rawData.fund = fundDataRaw;
+                    App.state.rawData.fxPos = fxPosDataRaw;
+                    App.state.rawData.fxMkt = fxMktDataRaw;
+
+                    // Re-initialize State
+                    App.state.dates = [];
+                    App.state.assets = {};
+
+                    // 1. Process Fund Data
+                    // Columns: Date, Fund, Field, Amount
+                    fundDataRaw.forEach(row => {
+                        const date = App.formatDateExcel(row.Date || row.date);
+                        const fund = row.Fund || row.fund;
+                        const field = row.Field || row.field;
+                        const amount = parseFloat(row.Amount || row.amount);
+
+                        if(!date || !fund || isNaN(amount)) return;
+
+                        App.state.dates.push(date);
+                        if (!App.state.assets[fund]) {
+                            App.state.assets[fund] = { type: 'fund', rawPrices: {}, transactions: {}, rawPositions: {} };
+                        }
+
+                        if (field === 'NAV') {
+                            App.state.assets[fund].rawPrices[date] = amount;
+                        } else if (field === 'Deposit' || field === 'Withdraw') {
+                            if (!App.state.assets[fund].transactions[date]) App.state.assets[fund].transactions[date] = [];
+                            App.state.assets[fund].transactions[date].push({ field, amount });
+                        }
+                    });
+
+                    // 2. Process FX Market Data
+                    // Columns: Date, USD, EUR, JPY
+                    const fxNames = ['USD', 'EUR', 'JPY'];
+                    fxNames.forEach(fx => {
+                        if (!App.state.assets[fx]) {
+                            App.state.assets[fx] = { type: 'fx', rawPrices: {}, transactions: {}, rawPositions: {} };
+                        }
+                    });
+
+                    fxMktDataRaw.forEach(row => {
+                        const date = App.formatDateExcel(row.Date || row.date);
+                        if(!date) return;
+                        App.state.dates.push(date);
+
+                        fxNames.forEach(fx => {
+                            if (row[fx] !== undefined) {
+                                App.state.assets[fx].rawPrices[date] = parseFloat(row[fx]);
+                            }
+                        });
+                    });
+
+                    // 3. Process FX Position Data
+                    fxPosDataRaw.forEach(row => {
+                        const date = App.formatDateExcel(row.Date || row.date);
+                        if(!date) return;
+                        App.state.dates.push(date);
+
+                        fxNames.forEach(fx => {
+                            if (row[fx] !== undefined) {
+                                App.state.assets[fx].rawPositions[date] = parseFloat(row[fx]);
+                            }
+                        });
+                    });
+
+                    // Recalculate
+                    App.processDataAlignments();
+                    App.precalculateEWMA();
+                    
+                    // Set dates to the latest
+                    const lastDateStr = App.state.dates[App.state.dates.length - 1];
+                    const minDateStr = App.state.dates[App.state.settings.lookback];
+                    
+                    document.getElementById('as-of-date').max = lastDateStr;
+                    document.getElementById('as-of-date').min = minDateStr;
+                    document.getElementById('as-of-date').value = lastDateStr;
+                    
+                    document.getElementById('trend-as-of-date').max = lastDateStr;
+                    document.getElementById('trend-as-of-date').min = minDateStr;
+                    document.getElementById('trend-as-of-date').value = lastDateStr;
+
+                    // Show preview
+                    document.getElementById('data-preview-container').classList.remove('hidden');
+                    App.renderPreview('fund', fundDataRaw);
+                    App.renderPreview('fxPos', fxPosDataRaw);
+                    App.renderPreview('fxMkt', fxMktDataRaw);
+
+                    await App.updateDashboard();
+                    document.querySelector('[data-target="dashboard"]').click();
+                    alert("Data uploaded and parsed successfully!");
+
+                } catch (error) {
+                    console.error(error);
+                    alert("Error parsing files. Please verify format.\n" + error.message);
+                } finally {
+                    App.hideLoading();
+                }
+            },
+
+            readExcel: (file) => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = new Uint8Array(e.target.result);
+                            const workbook = XLSX.read(data, { type: 'array' });
+                            const firstSheetName = workbook.SheetNames[0];
+                            const worksheet = workbook.Sheets[firstSheetName];
+                            const json = XLSX.utils.sheet_to_json(worksheet);
+                            resolve(json);
+                        } catch (err) {
+                            reject(err);
+                        }
+                    };
+                    reader.onerror = (err) => reject(err);
+                    reader.readAsArrayBuffer(file);
+                });
+            },
+
+            formatDateExcel: (excelDate) => {
+                if (typeof excelDate === 'string') {
+                    // String date like YYYY/MM/DD
+                    const d = new Date(excelDate);
+                    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+                    return null;
+                } else if (typeof excelDate === 'number') {
+                    // Excel serial date
+                    const d = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
+                    return d.toISOString().split('T')[0];
+                }
+                return null;
+            },
+
+            // Update file name display for drag and drop
+            updateFileName: (input, displayId) => {
+                const displayElement = document.getElementById(displayId);
+                if (input.files && input.files.length > 0) {
+                    displayElement.textContent = input.files[0].name;
+                    displayElement.classList.add('text-primary');
+                    displayElement.classList.remove('text-slate-400');
+                } else {
+                    displayElement.textContent = 'No file selected';
+                    displayElement.classList.remove('text-primary');
+                    displayElement.classList.add('text-slate-400');
+                }
+            }
+        };
+
+        // --- UI Helper Methods ---
+        
+        // Render Range Bar (1Y Low---Avg---Current----1Y High)
+        App.renderRangeBar = (min, max, avg, curr) => {
+            const safeRange = max - min === 0 ? 1 : max - min;
+            const avgPct = max - min === 0 ? 50 : Math.max(0, Math.min(100, ((avg - min) / safeRange) * 100));
+            const currPct = max - min === 0 ? 50 : Math.max(0, Math.min(100, ((curr - min) / safeRange) * 100));
+            
+            return `
+                <div class="flex flex-col w-48 ml-auto">
+                    <div class="relative w-full h-1.5 bg-slate-200 rounded mt-1.5">
+                        <div class="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-slate-400 rounded-full shadow-sm z-10" style="left: calc(${avgPct}% - 5px);" title="Average: ${App.formatAmt(avg)}M"></div>
+                        <div class="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full shadow-sm border border-white z-20" style="left: calc(${currPct}% - 6px);" title="Current: ${App.formatAmt(curr)}M"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] text-slate-400 mt-1.5 font-medium tracking-tight">
+                        <span>${App.formatAmt(min)}</span>
+                        <span>${App.formatAmt(max)}</span>
+                    </div>
+                </div>
+            `;
+        };
+
+        // Generate and download sample Excel file
+        App.downloadSample = (type) => {
+            const wb = XLSX.utils.book_new();
+            let ws_data;
+            if(type === 'fund') {
+                ws_data = [
+                    ['Date', 'Fund', 'Field', 'Amount'],
+                    ['2025-01-02', 'Global Equity Fund', 'Deposit', 10000000],
+                    ['2025-01-03', 'Global Equity Fund', 'NAV', 100.5],
+                    ['2025-01-04', 'Global Equity Fund', 'NAV', 101.2]
+                ];
+            } else if (type === 'fxPos') {
+                ws_data = [
+                    ['Date', 'USD', 'EUR', 'JPY'],
+                    ['2025-01-02', 12000000, 5000000, 3500000],
+                    ['2025-01-03', 12000000, 5000000, 3500000]
+                ];
+            } else {
+                ws_data = [
+                    ['Date', 'USD', 'EUR', 'JPY'],
+                    ['2025-01-02', 31.5, 1.08, 150.0],
+                    ['2025-01-03', 31.6, 1.09, 149.5]
+                ];
+            }
+            const ws = XLSX.utils.aoa_to_sheet(ws_data);
+            XLSX.utils.book_append_sheet(wb, ws, "Sample");
+            XLSX.writeFile(wb, `Sample_${type}_Data.xlsx`);
+        };
+
+        // Render Data Preview (TSV format)
+        App.renderPreview = (id, dataArray) => {
+            if (!dataArray || dataArray.length === 0) return;
+            const header = Object.keys(dataArray[0]).join('\t');
+            const rows = dataArray.slice(0, 50).map(obj => Object.values(obj).join('\t')).join('\n'); // Show first 50
+            document.getElementById(`preview-${id}`).textContent = header + '\n' + rows;
+        };
+
+        // Copy Data to Clipboard (Full data)
+        App.copyData = (type) => {
+            const dataArray = App.state.rawData[type];
+            if (!dataArray || dataArray.length === 0) {
+                alert('No data available to copy.'); return;
+            }
+            const header = Object.keys(dataArray[0]).join('\t');
+            const rows = dataArray.map(obj => Object.values(obj).join('\t')).join('\n');
+            const tsv = header + '\n' + rows;
+            
+            // Use temporary textarea for copying
+            const ta = document.createElement('textarea');
+            ta.value = tsv;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            
+            alert('Copied to clipboard!');
+        };
+
+        // Start App
+        window.addEventListener('DOMContentLoaded', () => {
+            App.init();
+        });
+
+    </script>
+</body>
+</html>
