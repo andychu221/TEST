@@ -286,7 +286,22 @@
         .modal-content {
             background: white; padding: 20px; border-radius: 8px; width: 800px; max-height: 80vh; overflow-y: auto;
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            position: relative; /* Ensure close button stays inside */
         }
+        
+        .modal-close-btn {
+            position: absolute;
+            top: 12px;
+            right: 18px;
+            font-size: 28px;
+            color: #999;
+            cursor: pointer;
+            line-height: 1;
+            font-weight: bold;
+            transition: color 0.2s;
+        }
+        .modal-close-btn:hover { color: #333; }
+        
         .config-row { display: grid; grid-template-columns: 30px 100px 150px 150px 50px 60px; gap: 10px; margin-bottom: 10px; align-items: center; }
         .config-row input { padding: 4px; border: 1px solid #ddd; border-radius: 4px; width: 100%; }
         .config-header { font-weight: bold; color: #666; margin-bottom: 10px; display: grid; grid-template-columns: 30px 100px 150px 150px 50px 60px; gap: 10px; font-size: 0.85rem; }
@@ -302,35 +317,35 @@
         .tooltip-container:hover .tooltip-text { visibility: visible; opacity: 1; }
 
         /* ========================================= */
-        /* Print Styles - FIXED: Natural Size        */
+        /* Print Styles - Auto Scale to 1 Page       */
         /* ========================================= */
         @media print {
-            /* Removed forced @page settings to allow user control (Normal Printing) */
             @page {
-        		size: landscape;
-        		margin: 0.5cm;
-    		}
-body { 
-    background: white !important; 
-    margin: 0 !important; 
-    padding: 0 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    color-adjust: exact !important;
-    height: auto !important;
-    overflow: visible !important;
-}
+                size: A4 landscape;
+                margin: 5mm;
+            }
+            body.print-mode { 
+                background: white !important; 
+                margin: 0 !important; 
+                padding: 0 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+                overflow: hidden !important; /* Force to avoid overflowing pages */
+                width: 100vw !important;
+                height: 100vh !important;
+            }
 
             /* Hide all UI elements */
-            .mc-header, 
-            #loading-overlay, 
-            .modal-overlay, 
-            .controls-input,
-            button { 
+            .print-mode .mc-header, 
+            .print-mode #loading-overlay, 
+            .print-mode .modal-overlay, 
+            .print-mode .controls-input,
+            .print-mode button { 
                 display: none !important; 
             }
 
-            .container { 
+            .print-mode .container { 
                 max-width: none !important; 
                 width: 100% !important; 
                 margin: 0 !important; 
@@ -338,7 +353,7 @@ body {
                 display: block !important; 
             }
 
-            .main-content, .mc-container { 
+            .print-mode .main-content, .print-mode .mc-container { 
                 box-shadow: none !important; 
                 padding: 0 !important; 
                 margin: 0 !important; 
@@ -347,80 +362,28 @@ body {
                 background: white !important;
             }
 
-            #mc-wrapper {
-                zoom: 1 !important; 
-                width: auto !important; /* Allow natural width */
-                transform: none !important;
-                display: block !important;
-                overflow: visible !important;
+            /* Prevent elements from breaking mid-row */
+            .print-mode .mc-table, 
+            .print-mode tr, 
+            .print-mode th, 
+            .print-mode td {
+                page-break-inside: avoid !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
 
-            .mc-table {
-                width: max-content !important; /* Allow natural expansion */
-                table-layout: auto !important; /* Allow columns to size naturally */
-            }
-
-            /* Optimize content size for Print - Use Normal Screen Sizes (No Compression) */
-.mc-table th, .mc-table td {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    color-adjust: exact !important;
-}
-
-            /* Header specific adjustments - Ensure black color for print but keep sizes */
-.header-title-row th { 
-    color: #00008B !important; 
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-}
-
-.header-group-row th { 
-    color: #00008B !important; 
-    background-color: #E0FFFF !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-}
-
-.header-meta-row th { 
-    color: #00008B !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-}
-
-.header-name-row th { 
-    color: #00008B !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-}
-
-.text-blue-italic {
-    color: #00008B !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-}
-
-.date-header {
-    color: #00008B !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-}
-
-.header-note { 
-    display: block !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-}
+            .print-mode .header-title-row th { color: #00008B !important; }
+            .print-mode .header-group-row th { color: #00008B !important; background-color: #E0FFFF !important; }
+            .print-mode .header-meta-row th { color: #00008B !important; }
+            .print-mode .header-name-row th { color: #00008B !important; }
+            .print-mode .text-blue-italic { color: #00008B !important; }
+            .print-mode .date-header { color: #00008B !important; }
             
-            #footnote-area {
+            .print-mode #footnote-area {
                 border-top: 1px solid #000 !important;
-    			color: #000 !important;
-    			margin-top: 10px !important;
-    			page-break-inside: avoid !important;
-    			page-break-after: avoid !important;
+                color: #000 !important;
+                margin-top: 10px !important;
             }
-html, body {
-    height: auto !important;
-}
         }
     </style>
 </head>
@@ -433,6 +396,7 @@ html, body {
     <!-- Config Modal -->
     <div id="config-modal" class="modal-overlay">
         <div class="modal-content">
+            <span class="modal-close-btn" onclick="closeConfig()">×</span>
             <h3 style="margin-bottom: 15px;">Configuration</h3>
             <div class="config-header">
                 <span>#</span>
@@ -443,8 +407,34 @@ html, body {
                 <span>Footnote#</span>
             </div>
             <div id="config-list"></div>
-            <div style="margin-top: 20px; text-align: right;">
-                <button onclick="closeConfig()" style="padding: 5px 15px; cursor: pointer; background: #4a90e2; color: white; border: none; border-radius: 4px;">Close & Apply</button>
+        </div>
+    </div>
+
+    <!-- Reconcile Modal -->
+    <div id="reconcile-modal" class="modal-overlay">
+        <div class="modal-content" style="width: 900px; max-width: 95vw;">
+            <span class="modal-close-btn" onclick="closeReconcile()">×</span>
+            <h3 style="margin-bottom: 5px;">Reconcile with Official Websites</h3>
+            <p style="font-size: 0.85rem; color: #666; margin-bottom: 15px;">
+                * Note: Auto-fetching uses a CORS proxy. TWSE data usually works, but Nasdaq strict anti-bot protections might block it.<br>
+                Values default to Red (Failed to Fetch) if blocked. Please click the <b>Official Link</b> to verify and type the price manually.
+            </p>
+            <div style="max-height: 60vh; overflow-y: auto;">
+                <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 0.95rem;">
+                    <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                        <tr style="border-bottom: 2px solid #ccc;">
+                            <th style="padding: 8px;">Ticker</th>
+                            <th style="padding: 8px;">Name</th>
+                            <th style="padding: 8px;">Date (GitHub)</th>
+                            <th style="padding: 8px;">Price (GitHub)</th>
+                            <th style="padding: 8px; min-width: 100px;">Official Price</th>
+                            <th style="padding: 8px;">Status</th>
+                            <th style="padding: 8px;">Official Link</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reconcile-list">
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -457,6 +447,7 @@ html, body {
                         <label>As of:</label>
                         <input type="date" id="mc-as-of-date" class="controls-input" onchange="renderTable()">
                         <button class="controls-input" onclick="openConfig()" style="width: auto;"><i class="material-icons" style="font-size:14px; vertical-align:middle;">settings</i> Config</button>
+                        <button class="controls-input" onclick="openReconcile()" style="width: auto; background-color: #f1f8ff; border-color: #4a90e2; color: #4a90e2; font-weight: bold;"><i class="material-icons" style="font-size:14px; vertical-align:middle;">sync</i> Reconcile</button>
                     </div>
                     
                     <div class="mc-settings-right">
@@ -541,6 +532,25 @@ html, body {
             if(window.innerWidth < 1600) zoomLevel = 0.9;
             else zoomLevel = 1.0;
             applyZoom();
+
+            // 偵測報表內數值被改動，變成橘色底色顯示 5 秒
+            document.addEventListener('input', function(e) {
+                if (e.target && e.target.classList && e.target.classList.contains('cell-editable')) {
+                    e.target.style.backgroundColor = 'rgba(255, 165, 0, 0.6)'; // 橘色
+                    e.target.style.transition = 'background-color 0.1s';
+                    
+                    if (e.target.dataset.timeoutId) {
+                        clearTimeout(parseInt(e.target.dataset.timeoutId));
+                    }
+                    
+                    const timeoutId = setTimeout(() => {
+                        e.target.style.backgroundColor = 'transparent';
+                        e.target.style.transition = 'background-color 1s ease'; // 淡出恢復
+                    }, 5000);
+                    
+                    e.target.dataset.timeoutId = timeoutId;
+                }
+            });
         });
 
         async function loadData() {
@@ -995,12 +1005,256 @@ ${splitInfoStr}`;
             document.getElementById('config-modal').style.display = 'none';
             renderTable();
         }
-        
-        // --- PDF / Print Functionality (Native Print) ---
+
+        // --- Reconcile Modal Logic ---
+        function getOfficialLink(ticker) {
+            if (ticker === '.TWII') return 'https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?response=html';
+            if (ticker.endsWith('.TW')) {
+                const stockNo = ticker.split('.')[0];
+                return `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${stockNo}&response=html`;
+            }
+            if (ticker === '005930.KS') return 'http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101';
+            if (ticker === 'ASML.AS') return 'https://live.euronext.com/en/product/equities/NL0010273215-XAMS';
+            
+            if (ticker.startsWith('.')) {
+                return `https://www.nasdaq.com/market-activity/index/${ticker.replace('.','').toLowerCase()}/historical`;
+            }
+            
+            let sym = ticker;
+            if (ticker === 'TSM') sym = 'tsm';
+            return `https://www.nasdaq.com/market-activity/stocks/${sym.toLowerCase()}/historical`;
+        }
+
+        async function fetchWithProxy(url) {
+            try {
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                const response = await fetch(proxyUrl);
+                const data = await response.json();
+                if (data.contents) return data.contents;
+                return null;
+            } catch(e) {
+                return null;
+            }
+        }
+
+        // 透過 Yahoo Finance API 作為備援抓取
+        async function fetchYahooFinance(ticker, targetDate) {
+            try {
+                let yfTicker = ticker;
+                if (yfTicker === '.TWII') yfTicker = '^TWII';
+                if (yfTicker === '.IXIC') yfTicker = '^IXIC';
+                if (yfTicker === '.SOX') yfTicker = '^SOX';
+                
+                const d = new Date(targetDate);
+                const targetStr = d.toISOString().split('T')[0]; 
+                
+                // 抓取前後幾天來避免時區落差導致找不到那一天
+                const start1 = Math.floor(d.getTime() / 1000) - 86400 * 7;
+                const end1 = Math.floor(d.getTime() / 1000) + 86400 * 2;
+                
+                const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfTicker}?period1=${start1}&period2=${end1}&interval=1d`;
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                
+                const response = await fetch(proxyUrl);
+                const data = await response.json();
+                if (data.contents) {
+                    const parsed = JSON.parse(data.contents);
+                    const result = parsed.chart.result[0];
+                    if (result && result.timestamp && result.indicators.quote[0].close) {
+                        const timestamps = result.timestamp;
+                        const closes = result.indicators.quote[0].close;
+                        
+                        for(let i = timestamps.length - 1; i >= 0; i--) {
+                            const dateObj = new Date(timestamps[i] * 1000);
+                            const y = dateObj.getFullYear();
+                            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+                            const day = String(dateObj.getDate()).padStart(2, '0');
+                            const dStr = `${y}-${m}-${day}`;
+                            
+                            if (dStr === targetStr && closes[i] !== null) {
+                                return closes[i];
+                            }
+                        }
+                    }
+                }
+                return null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function fetchOfficialData(col, dateObj) {
+            const ticker = col.id;
+            let result = { price: null, source: null };
+
+            try {
+                // 1. 嘗試抓取台股官方證交所 (TWSE)
+                if (ticker === '.TWII' || ticker.endsWith('.TW')) {
+                    let url;
+                    let priceIdx;
+                    if (ticker === '.TWII') {
+                        url = 'https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?response=json';
+                        priceIdx = 4;
+                    } else {
+                        const stockNo = ticker.split('.')[0];
+                        url = `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockNo=${stockNo}&response=json`;
+                        priceIdx = 6;
+                    }
+                    const jsonStr = await fetchWithProxy(url);
+                    if (jsonStr) {
+                        const data = JSON.parse(jsonStr);
+                        if (data.data) {
+                            const twYear = dateObj.getFullYear() - 1911;
+                            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+                            const d = String(dateObj.getDate()).padStart(2, '0');
+                            const targetDate = `${twYear}/${m}/${d}`;
+
+                            const row = data.data.find(r => r[0] === targetDate);
+                            if (row) {
+                                result.price = parseFloat(row[priceIdx].replace(/,/g, ''));
+                                result.source = 'TWSE';
+                                return result;
+                            }
+                        }
+                    }
+                } 
+                
+                // 2. 如果官方抓取失敗，或是碰到 Cloudflare 防護的美股，啟動 Yahoo Finance API 備援
+                const yfPrice = await fetchYahooFinance(ticker, dateObj);
+                if (yfPrice !== null) {
+                    result.price = yfPrice;
+                    result.source = 'Yahoo Finance';
+                    return result;
+                }
+
+                return result;
+            } catch (e) {
+                return result;
+            }
+        }
+
+        async function openReconcile() {
+            const list = document.getElementById('reconcile-list');
+            list.innerHTML = '';
+            document.getElementById('reconcile-modal').style.display = 'flex';
+            
+            COLUMN_CONFIG.forEach((col, idx) => {
+                if(col.type === 'separator' || col.type === 'calc' || col.type === 'mci' || col.type === 'volume' || col.type === 'fx') return;
+                
+                const data = dataByTicker[col.id] || [];
+                const latest = data.length > 0 ? data[data.length - 1] : null;
+                const link = getOfficialLink(col.id);
+                
+                let ghDate = latest ? latest.dateStr : 'N/A';
+                
+                let displayDecimals = col.fixedDecimals !== undefined ? col.fixedDecimals : (columnDecimalRules[idx] || 2);
+                let ghPriceRaw = latest ? latest.price : null;
+                let ghPriceStr = ghPriceRaw !== null ? ghPriceRaw.toFixed(displayDecimals) : 'N/A';
+                
+                let tr = document.createElement('tr');
+                tr.style.borderBottom = "1px solid #eee";
+                
+                tr.innerHTML = `
+                    <td style="padding: 10px 8px; font-weight: bold; color: var(--text-dark-blue);">${col.id}</td>
+                    <td style="padding: 10px 8px;">${col.name}</td>
+                    <td style="padding: 10px 8px;">${ghDate}</td>
+                    <td style="padding: 10px 8px;">${ghPriceStr}</td>
+                    <td style="padding: 10px 8px;">
+                        <input type="number" id="recon-off-${idx}" step="any" style="width: 90px; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" oninput="checkRecon(${idx}, ${ghPriceRaw})" placeholder="Type here...">
+                        <div id="recon-source-${idx}" style="font-size: 0.75rem; color: #888; margin-top: 4px; font-style: italic;"></div>
+                    </td>
+                    <td style="padding: 10px 8px; font-weight: bold; color: #888;" id="recon-status-${idx}">Fetching...</td>
+                    <td style="padding: 10px 8px;"><a href="${link}" target="_blank" style="color: #4a90e2; text-decoration: none; font-weight: bold;">⧉ Official Page</a></td>
+                `;
+                list.appendChild(tr);
+                
+                // Execute auto-fetch with Fallback
+                if (latest && latest.date) {
+                    fetchOfficialData(col, latest.date).then(res => {
+                        const offPrice = res.price;
+                        const source = res.source;
+                        const input = document.getElementById(`recon-off-${idx}`);
+                        const statusTd = document.getElementById(`recon-status-${idx}`);
+                        const sourceDiv = document.getElementById(`recon-source-${idx}`);
+                        
+                        if (offPrice !== null && input && statusTd) {
+                            input.value = offPrice.toFixed(displayDecimals);
+                            if(sourceDiv) sourceDiv.innerText = `Source: ${source}`;
+                            checkRecon(idx, ghPriceRaw);
+                        } else if (statusTd && input) {
+                            statusTd.innerText = 'Failed to Fetch';
+                            statusTd.style.color = 'red';
+                            input.style.borderColor = 'red';
+                            input.style.backgroundColor = '#fff0f0';
+                            if(sourceDiv) sourceDiv.innerText = `Source: N/A`;
+                        }
+                    });
+                } else {
+                    const statusTd = document.getElementById(`recon-status-${idx}`);
+                    if(statusTd) {
+                        statusTd.innerText = 'No Data';
+                        statusTd.style.color = 'red';
+                    }
+                }
+            });
+        }
+
+        function checkRecon(idx, ghPriceRaw) {
+            const offInput = document.getElementById(`recon-off-${idx}`);
+            const statusTd = document.getElementById(`recon-status-${idx}`);
+            if (!offInput || !statusTd) return;
+            
+            const val = offInput.value;
+
+            if (!val || val.trim() === '') {
+                statusTd.innerText = 'Failed to Fetch';
+                statusTd.style.color = 'red';
+                offInput.style.borderColor = 'red';
+                offInput.style.backgroundColor = '#fff0f0';
+            } else if (ghPriceRaw !== null && Math.abs(parseFloat(val) - ghPriceRaw) < 0.001) {
+                statusTd.innerText = 'Matched';
+                statusTd.style.color = 'green';
+                offInput.style.borderColor = 'green';
+                offInput.style.backgroundColor = '#f0fff0';
+            } else {
+                statusTd.innerText = 'Mismatch';
+                statusTd.style.color = 'red';
+                offInput.style.borderColor = 'red';
+                offInput.style.backgroundColor = '#fff0f0';
+            }
+        }
+
+        function closeReconcile() {
+            document.getElementById('reconcile-modal').style.display = 'none';
+        }
+
+        // --- PDF / Print Functionality (Dynamic Auto Scale) ---
         function openPDF() {
-            // Trigger native browser print which supports Save to PDF
-            // CSS @media print handles the layout and landscape orientation
+            // Add a class that triggers our @media print overriding rules
+            document.body.classList.add('print-mode');
+            
+            const wrapper = document.getElementById('mc-wrapper');
+            const table = document.querySelector('.mc-table');
+            
+            // Calculate necessary scale to fit the exact table width/height into an A4 Landscape page
+            // A typical browser print window available width for A4 landscape minus standard margins is roughly 1040px ~ 1100px.
+            const targetPrintWidth = 1050; 
+            const targetPrintHeight = 700; // Leaving room for titles/footnotes
+            
+            const scaleX = targetPrintWidth / table.offsetWidth;
+            const scaleY = targetPrintHeight / table.offsetHeight;
+            let finalScale = Math.min(scaleX, scaleY, 1.0); // Don't scale up above 100%, just scale down if needed
+            
+            // Apply scale explicitly before invoking the print dialog
+            wrapper.style.transform = `scale(${finalScale})`;
+            wrapper.style.transformOrigin = `top left`;
+            
             window.print();
+            
+            // Restore normal view after the print dialog closes
+            wrapper.style.transform = '';
+            document.body.classList.remove('print-mode');
+            applyZoom(); 
         }
 
         // --- Rendering ---
