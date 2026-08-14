@@ -17,6 +17,10 @@
     <!-- Marked.js for Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
+    <!-- 加入 html2canvas & jsPDF 用於剛好一頁的 PDF 輸出 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
     <style>
         :root {
             --bg-color: #ffffff;
@@ -317,74 +321,37 @@
         .tooltip-container:hover .tooltip-text { visibility: visible; opacity: 1; }
 
         /* ========================================= */
-        /* Print Styles - Auto Scale to 1 Page       */
+        /* PDF Export Styles (One Page)              */
         /* ========================================= */
-        @media print {
-            @page {
-                size: A4 landscape;
-                margin: 5mm;
-            }
-            body.print-mode { 
-                background: white !important; 
-                margin: 0 !important; 
-                padding: 0 !important;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-                color-adjust: exact !important;
-                overflow: hidden !important; /* Force to avoid overflowing pages */
-                width: 100vw !important;
-                height: 100vh !important;
-            }
-
-            /* Hide all UI elements */
-            .print-mode .mc-header, 
-            .print-mode #loading-overlay, 
-            .print-mode .modal-overlay, 
-            .print-mode .controls-input,
-            .print-mode button { 
-                display: none !important; 
-            }
-
-            .print-mode .container { 
-                max-width: none !important; 
-                width: 100% !important; 
-                margin: 0 !important; 
-                padding: 0 !important; 
-                display: block !important; 
-            }
-
-            .print-mode .main-content, .print-mode .mc-container { 
-                box-shadow: none !important; 
-                padding: 0 !important; 
-                margin: 0 !important; 
-                border: none !important; 
-                width: 100% !important; 
-                background: white !important;
-            }
-
-            /* Prevent elements from breaking mid-row */
-            .print-mode .mc-table, 
-            .print-mode tr, 
-            .print-mode th, 
-            .print-mode td {
-                page-break-inside: avoid !important;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-            }
-
-            .print-mode .header-title-row th { color: #00008B !important; }
-            .print-mode .header-group-row th { color: #00008B !important; background-color: #E0FFFF !important; }
-            .print-mode .header-meta-row th { color: #00008B !important; }
-            .print-mode .header-name-row th { color: #00008B !important; }
-            .print-mode .text-blue-italic { color: #00008B !important; }
-            .print-mode .date-header { color: #00008B !important; }
-            
-            .print-mode #footnote-area {
-                border-top: 1px solid #000 !important;
-                color: #000 !important;
-                margin-top: 10px !important;
-            }
+        body.pdf-mode {
+            background: white !important;
+            padding: 10px !important;
+            margin: 0 !important;
+            /* 強制讓 Body 可以無限延伸，避免 html2canvas 被螢幕寬度截斷 */
+            width: max-content !important;
+            height: max-content !important;
+            overflow: visible !important;
         }
+        body.pdf-mode .mc-header, 
+        body.pdf-mode .modal-overlay, 
+        body.pdf-mode .controls-input,
+        body.pdf-mode button { 
+            display: none !important; 
+        }
+        body.pdf-mode .container,
+        body.pdf-mode .main-content,
+        body.pdf-mode #market-cap-tab {
+            margin: 0 !important;
+            padding: 0 !important;
+            /* 解除所有寬度限制，讓表格自由撐開 */
+            max-width: none !important;
+            width: max-content !important;
+            height: max-content !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            overflow: visible !important;
+        }
+        
     </style>
 </head>
 <body>
@@ -453,7 +420,7 @@
                     <div class="mc-settings-right">
                         <button class="controls-input" onclick="zoomTable(0.05)" style="width:40px; text-align:center;"><i class="material-icons" style="font-size:16px;">add</i></button>
                         <button class="controls-input" onclick="zoomTable(-0.05)" style="width:40px; text-align:center;"><i class="material-icons" style="font-size:16px;">remove</i></button>
-                        <button class="controls-input" onclick="openPDF()" style="width:auto;"><i class="material-icons" style="font-size:16px; vertical-align:text-bottom;">print</i> Print / PDF</button>
+                        <button class="controls-input" onclick="openPDF()" style="width:auto; background-color: #4a90e2; color: white; border-color: #4a90e2;"><i class="material-icons" style="font-size:16px; vertical-align:text-bottom;">download</i> Download PDF</button>
                     </div>
                 </div>
 
@@ -514,7 +481,6 @@
         let tsmExDivInfo = null;
         let tsmAccumDiv = 0;
         let splitInfoStr = "";
-        let pdfBlobUrl = null;
 
         const START_STATS_DATE = new Date('2009-06-12').getTime();
         const START_DIV_DATE = new Date('2008-01-01').getTime();
@@ -529,8 +495,8 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             loadData();
-            if(window.innerWidth < 1600) zoomLevel = 0.9;
-            else zoomLevel = 1.0;
+            if(window.innerWidth < 1600) zoomLevel = 0.8;
+            else zoomLevel = 0.8;
             applyZoom();
 
             // 偵測報表內數值被改動，變成橘色底色顯示 5 秒
@@ -1228,33 +1194,81 @@ ${splitInfoStr}`;
             document.getElementById('reconcile-modal').style.display = 'none';
         }
 
-        // --- PDF / Print Functionality (Dynamic Auto Scale) ---
-        function openPDF() {
-            // Add a class that triggers our @media print overriding rules
-            document.body.classList.add('print-mode');
-            
+        // =========================================
+        // PDF / Print Functionality (One Page PDF) 
+        // =========================================
+        async function openPDF() {
             const wrapper = document.getElementById('mc-wrapper');
-            const table = document.querySelector('.mc-table');
+            const targetEl = document.getElementById('market-cap-tab');
             
-            // Calculate necessary scale to fit the exact table width/height into an A4 Landscape page
-            // A typical browser print window available width for A4 landscape minus standard margins is roughly 1040px ~ 1100px.
-            const targetPrintWidth = 1050; 
-            const targetPrintHeight = 700; // Leaving room for titles/footnotes
+            // 1. 暫存原有的捲動位置與縮放比例
+            const originalScrollX = window.scrollX;
+            const originalScrollY = window.scrollY;
+            const originalZoom = wrapper.style.zoom;
             
-            const scaleX = targetPrintWidth / table.offsetWidth;
-            const scaleY = targetPrintHeight / table.offsetHeight;
-            let finalScale = Math.min(scaleX, scaleY, 1.0); // Don't scale up above 100%, just scale down if needed
+            // 2. 將縮放完全重置，並將畫面捲回最上方，避免 html2canvas 座標跑掉
+            wrapper.style.zoom = '';
+            window.scrollTo(0, 0);
+
+            // 3. 加入 pdf-mode 樣式，強制解開所有寬高與隱藏按鈕
+            document.body.classList.add('pdf-mode');
             
-            // Apply scale explicitly before invoking the print dialog
-            wrapper.style.transform = `scale(${finalScale})`;
-            wrapper.style.transformOrigin = `top left`;
-            
-            window.print();
-            
-            // Restore normal view after the print dialog closes
-            wrapper.style.transform = '';
-            document.body.classList.remove('print-mode');
-            applyZoom(); 
+            const loadingOverlay = document.getElementById('loading-overlay');
+            const loadingText = document.getElementById('loading-text');
+            loadingOverlay.style.display = 'flex';
+            loadingText.innerText = "Generating PDF...";
+
+            try {
+                // 等待瀏覽器重新計算 (Reflow) 寬高佈局
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                // 取得解開限制後，表格最原始、最真實的最大寬度與高度
+                const fullWidth = targetEl.scrollWidth;
+                const fullHeight = targetEl.scrollHeight;
+
+                // 產生 Canvas，強制指定真實寬高與視窗尺寸，解決截斷問題
+                const canvas = await html2canvas(targetEl, {
+                    scale: 2, 
+                    useCORS: true,
+                    backgroundColor: '#ffffff',
+                    width: fullWidth,
+                    height: fullHeight,
+                    windowWidth: fullWidth,
+                    windowHeight: fullHeight,
+                    x: 0,
+                    y: 0,
+                    scrollX: 0,
+                    scrollY: 0
+                });
+
+               // 【修改 1】：將 'image/png' 改為 'image/jpeg'，並加上第二個參數 (例如 0.75 代表 75% 品質)
+				const imgData = canvas.toDataURL('image/jpeg', 0.75);
+				const { jsPDF } = window.jspdf;
+
+				// 根據 Canvas 的長寬度建立剛好一樣大小的 PDF
+				const pdf = new jsPDF({
+    				orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+    				unit: 'px',
+    				format: [canvas.width, canvas.height] 
+				});
+
+				// 【修改 2】：將這裡的 'PNG' 改成 'JPEG'
+				pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+                // 執行下載
+                const dateStr = document.getElementById('mc-as-of-date').value || 'Report';
+                pdf.save(`Stock_Price_Monitor_${dateStr}.pdf`);
+
+            } catch (error) {
+                console.error("PDF 產生失敗:", error);
+                alert("PDF 產生失敗，請查看開發者控制台(Console)。");
+            } finally {
+                // 4. 恢復原狀
+                document.body.classList.remove('pdf-mode');
+                wrapper.style.zoom = originalZoom;
+                window.scrollTo(originalScrollX, originalScrollY);
+                loadingOverlay.style.display = 'none';
+                loadingText.innerText = "Loading Market Data...";
+            }
         }
 
         // --- Rendering ---
