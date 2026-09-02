@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Global Calendar</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 隱藏捲動軸，保持日曆格子美觀 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* 自訂捲動軸，讓格子內有捲軸概念且美觀 */
+        .cell-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .cell-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .cell-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 10px;
+        }
+        .cell-scrollbar {
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 flex flex-col">
+
+    <div id="loading-screen" class="flex h-screen flex-col items-center justify-center bg-gray-50 text-gray-500 space-y-4 absolute inset-0 z-50">
+        <i data-lucide="calendar" class="w-12 h-12 animate-pulse text-blue-500"></i>
+        <div class="text-xl font-bold tracking-wide">Loading Calendar Data...</div>
+    </div>
+
+    <div id="app-container" class="flex flex-col h-screen hidden">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm z-20 flex-shrink-0">
+            <div class="flex items-center space-x-3 mb-4 md:mb-0">
+                <i data-lucide="calendar" class="text-blue-600 w-8 h-8"></i>
+                <h1 class="text-2xl font-bold text-gray-800 tracking-tight">Market Calendar Dashboard</h1>
+            </div>
+            
+            <div class="flex items-center bg-gray-100 p-1 rounded-lg shadow-inner">
+                <button id="btn-prev" class="flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all">
+                    <i data-lucide="chevron-left" class="w-4 h-4 mr-1"></i> Prev
+                </button>
+                <div id="month-range-label" class="px-6 text-sm font-semibold text-gray-600 min-w-[200px] text-center whitespace-nowrap">
+                    <!-- Javascript 將填入月份區間 -->
+                </div>
+                <button id="btn-next" class="flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all">
+                    Next <i data-lucide="chevron-right" class="w-4 h-4 ml-1"></i>
+                </button>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-auto xl:overflow-hidden p-4 md:p-6 flex flex-col xl:flex-row gap-6 min-w-fit">
+            <!-- 左側日曆 (本月) -->
+            <div class="flex-1 min-w-[500px] h-[600px] xl:h-auto flex flex-col bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                <div class="bg-slate-800 px-4 py-3 flex justify-center items-center flex-shrink-0">
+                    <h2 id="left-month-title" class="text-lg font-bold text-white tracking-wide"></h2>
+                </div>
+                <div id="left-calendar" class="flex-1 flex flex-col overflow-hidden"></div>
+            </div>
+
+            <!-- 右側日曆 (下月) -->
+            <div class="flex-1 min-w-[500px] h-[600px] xl:h-auto flex flex-col bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                <div class="bg-slate-800 px-4 py-3 flex justify-center items-center flex-shrink-0">
+                    <h2 id="right-month-title" class="text-lg font-bold text-white tracking-wide"></h2>
+                </div>
+                <div id="right-calendar" class="flex-1 flex flex-col overflow-hidden"></div>
+            </div>
+        </main>
+
+        <div class="flex flex-wrap gap-4 p-4 text-xs font-medium text-gray-600 bg-white border-t border-gray-200 justify-center flex-shrink-0">
+            <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-pink-100 border border-pink-300 mr-2 inline-block"></span>TW Holiday / Weekend</div>
+            <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-indigo-50 border border-indigo-200 mr-2 inline-block"></span>US Holiday</div>
+            <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-orange-50 border border-orange-200 mr-2 inline-block"></span>JP Holiday</div>
+            <div class="flex items-center"><span class="font-medium text-gray-800 bg-gray-100 border border-gray-200 px-1 rounded-sm mr-1 inline-block text-center leading-none text-[10px]">Abc</span>Economic Event</div>
+            <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-yellow-100 border border-yellow-300 mr-2 inline-block"></span>Earnings Call</div>
+            <div class="flex items-center"><span class="w-3 h-3 rounded-sm bg-yellow-50 ring-2 ring-red-500 mr-2 inline-block"></span>Today</div>
+        </div>
+    </div>
+
+    <script>
+        // 初始化 Lucide Icons
+        lucide.createIcons();
+
+        /* --- 狀態變數 --- */
+        let currentDate = new Date();
+        let mappedData = {}; // 以 YYYY-MM-DD 為 key 的所有事件資料
+
+        /* --- 日期輔助工具 --- */
+        const safeDateStr = (dateStr) => {
+            if (!dateStr) return null;
+            if (typeof dateStr !== 'string') dateStr = String(dateStr);
+            
+            const ymdRegex = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/;
+            const match = dateStr.match(ymdRegex);
+            if (match) {
+                return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+            }
+            
+            const d = new Date(dateStr);
+            if (!isNaN(d)) {
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            }
+            return null;
+        };
+
+        const getDateStrLocal = (d) => {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+
+        const todayStr = getDateStrLocal(new Date());
+
+        // 專門解析經濟數據 (精準對應 Date, Event, Actual, Forecast, Expectation)
+        const parseEconomic = (data) => {
+            if (!Array.isArray(data)) return [];
+            return data.map(item => ({
+                date: safeDateStr(item.Date || item.date),
+                type: 'eco',
+                label: item.Event || item.event || 'Economic Event',
+                actual: item.Actual || item.actual || '',
+                forecast: item.Expectation || item.Forecast || item.expectation || item.forecast || ''
+            })).filter(i => i.date && i.label);
+        };
+
+        // 專門解析財報日曆 (精準對應 Earnings Date 與 Symbol)
+        const parseEarnings = (data) => {
+            if (!Array.isArray(data)) return [];
+            return data.map(item => {
+                let d = item["Earnings Date"] || item.date || item.Date;
+                if(d && typeof d === 'string') d = d.split(" ")[0]; // 截斷 "2026-09-02 14:00:00" 的時間部分
+                return {
+                    date: safeDateStr(d),
+                    type: 'earn',
+                    label: item.Symbol || item.symbol || 'Earnings Call',
+                    actual: item["Reported EPS"] || item.actual || '',
+                    forecast: item["EPS Estimate"] || item.forecast || ''
+                };
+            }).filter(i => i.date && i.label);
+        };
+
+        const fetchHolidays = async (years) => {
+            const results = {};
+            
+            for (const year of years) {
+                // US & JP 假期
+                for (const code of ['US', 'JP']) {
+                    try {
+                        const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/${code}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            data.forEach(h => {
+                                const dStr = h.date; 
+                                if (!results[dStr]) results[dStr] = { events: [], isTWHoliday: null };
+                                
+                                // 過濾美國假期，如果當天已經有美國假，就不再新增 (保留第一個)
+                                if (code === 'US' && results[dStr].events.some(existing => existing.country === 'US')) {
+                                    return; 
+                                }
+
+                                if (!results[dStr].events.some(existing => existing.name === (h.localName || h.name) && existing.country === code)) {
+                                    results[dStr].events.push({ name: h.localName || h.name, country: code });
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.warn(`Could not fetch holidays for ${code} in ${year}`);
+                    }
+                }
+
+                // TW 假期 (使用 GitHub 開源的人事行政局辦公日曆表 JSON，精準包含中秋/雙十/過年/補班)
+                try {
+                    const res = await fetch(`https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/${year}.json`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        data.forEach(item => {
+                            // API 日期格式為 YYYYMMDD (例如 20260101)
+                            const dStr = `${item.date.substring(0,4)}-${item.date.substring(4,6)}-${item.date.substring(6,8)}`;
+                            if (!results[dStr]) results[dStr] = { events: [], isTWHoliday: null };
+                            
+                            results[dStr].isTWHoliday = item.isHoliday; // isHoliday 為 true 放假, false 為工作日/補班
+                            
+                            if (item.isHoliday && item.description) {
+                                results[dStr].events.push({ name: item.description, country: 'TW' });
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn(`Could not fetch TW holidays in ${year}`);
+                }
+            }
+            return results;
+        };
+
+        const loadData = async () => {
+            try {
+                const ecoPromise = fetch('https://raw.githubusercontent.com/andychu221/yhfinance-fred-data/main/us_economic_calendar_te.json')
+                    .then(res => res.ok ? res.json() : [])
+                    .catch(() => []);
+                    
+                const earnPromise = fetch('https://raw.githubusercontent.com/andychu221/Earnings-Call-Transcripts/main/earnings_calendar.json')
+                    .then(res => res.ok ? res.json() : [])
+                    .catch(() => []);
+
+                const [ecoJson, earnJson] = await Promise.all([ecoPromise, earnPromise]);
+                
+                const economicData = parseEconomic(ecoJson);
+                const earningsData = parseEarnings(earnJson);
+
+                const currentYear = new Date().getFullYear();
+                const holidaysData = await fetchHolidays([currentYear, currentYear + 1]);
+
+                // 組合所有資料到 mappedData
+                const add = (date, type, val) => {
+                    if(!mappedData[date]) mappedData[date] = { eco: [], earn: [], holidays: [], isTWHoliday: null };
+                    mappedData[date][type].push(val);
+                };
+                
+                economicData.forEach(d => add(d.date, 'eco', d));
+                earningsData.forEach(d => add(d.date, 'earn', d));
+                Object.keys(holidaysData).forEach(date => {
+                    if (!mappedData[date]) mappedData[date] = { eco: [], earn: [], holidays: [], isTWHoliday: null };
+                    mappedData[date].holidays = [...mappedData[date].holidays, ...holidaysData[date].events];
+                    mappedData[date].isTWHoliday = holidaysData[date].isTWHoliday;
+                });
+
+            } catch(e) {
+                console.error('Error fetching data', e);
+            } finally {
+                // 隱藏 loading，顯示主畫面
+                document.getElementById('loading-screen').classList.add('hidden');
+                document.getElementById('app-container').classList.remove('hidden');
+                renderApp();
+            }
+        };
+
+        const renderCalendarGrid = (containerId, date) => {
+            const year = date.getFullYear();
+            const month = date.getMonth();
+            
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const prevMonthDays = new Date(year, month, 0).getDate();
+            
+            const days = [];
+            for (let i = firstDay - 1; i >= 0; i--) {
+                days.push({ date: new Date(year, month - 1, prevMonthDays - i), isCurrentMonth: false });
+            }
+            for (let i = 1; i <= daysInMonth; i++) {
+                days.push({ date: new Date(year, month, i), isCurrentMonth: true });
+            }
+            
+            // 動態計算需要補齊到該週六的天數，而不是強制定死 42 天 (6週)
+            const remaining = (7 - (days.length % 7)) % 7;
+            for (let i = 1; i <= remaining; i++) {
+                days.push({ date: new Date(year, month + 1, i), isCurrentMonth: false });
+            }
+
+            // 判斷該月有幾週 (5週或6週)，設定對應的 Tailwind row 數量
+            const numRows = days.length / 7;
+            const rowClass = numRows === 5 ? 'grid-rows-5' : 'grid-rows-6';
+
+            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            let html = `<div class="grid grid-cols-7 border-b bg-gray-100 flex-shrink-0">`;
+            
+            dayNames.forEach(d => {
+                html += `<div class="p-2 text-center text-sm font-semibold text-gray-700">${d}</div>`;
+            });
+            // 動態設定 grid-rows-X 強制平分高度
+            html += `</div><div class="grid grid-cols-7 ${rowClass} flex-1 min-h-0">`;
+
+            days.forEach((dayObj) => {
+                const dateStr = getDateStrLocal(dayObj.date);
+                const dayData = mappedData[dateStr] || { eco: [], earn: [], holidays: [], isTWHoliday: null };
+                
+                const isWeekend = dayObj.date.getDay() === 0 || dayObj.date.getDay() === 6;
+                let isTWNonWorkingDay = isWeekend; // 預設使用普通週末判斷
+                if (dayData.isTWHoliday !== null && dayData.isTWHoliday !== undefined) {
+                    isTWNonWorkingDay = dayData.isTWHoliday; // 依照人事行政局覆蓋
+                }
+                
+                const isToday = dateStr === todayStr;
+                
+                let bgClass = "bg-white";
+                let textClass = "text-gray-600";
+
+                // 無論是不是當月，只要是台灣假日或六日，都有粉紅色背景
+                if (isTWNonWorkingDay) {
+                    bgClass = dayObj.isCurrentMonth ? "bg-pink-100" : "bg-pink-50"; 
+                    textClass = dayObj.isCurrentMonth ? "text-pink-700" : "text-pink-400";
+                } else if (!dayObj.isCurrentMonth) {
+                    bgClass = "bg-gray-50";
+                    textClass = "text-gray-400";
+                }
+                
+                let containerClasses = `flex flex-col min-h-0 border-r border-b border-gray-200 p-1.5 transition-colors ${bgClass}`;
+                
+                if (isToday) {
+                    containerClasses += " ring-2 ring-red-500 ring-inset z-10 relative";
+                }
+
+                // Today 專屬標籤
+                let todayLabel = isToday ? `<span class="text-red-500 text-[10px] px-1 py-0.5 font-bold">Today</span>` : '';
+
+                html += `
+                    <div class="${containerClasses}">
+                        <div class="font-semibold text-sm mb-1 ${textClass} flex justify-between items-center">
+                            <span>${dayObj.date.getDate()}</span>
+                            ${todayLabel}
+                        </div>
+                        <div class="flex-1 overflow-y-auto space-y-[1px] cell-scrollbar pr-[2px]">
+                `;
+
+                // 只有當月份的格子才顯示事件，避免跨月事件重複顯示在畫面上
+                if (dayObj.isCurrentMonth) {
+                    // 假日
+                    let usHolidayAdded = false;
+                    dayData.holidays.forEach(h => {
+                        if (h.country === 'US') {
+                            if (usHolidayAdded) return;
+                            usHolidayAdded = true;
+                        }
+                        
+                        let tagColor = "bg-gray-100 text-gray-800 border-gray-200";
+                        if (h.country === 'US') tagColor = "bg-indigo-50 text-indigo-700 border-indigo-200";
+                        if (h.country === 'JP') tagColor = "bg-orange-50 text-orange-700 border-orange-200";
+                        if (h.country === 'TW') tagColor = "bg-pink-200 text-pink-800 border-pink-300";
+
+                        html += `<div class="text-[10px] leading-tight px-1 py-[2px] mb-[2px] rounded-sm truncate border font-bold ${tagColor}" title="[${h.country}] ${h.name}">${h.country}: ${h.name}</div>`;
+                    });
+
+                    // Economic Events
+                    let ecoGroups = {};
+                    dayData.eco.forEach(e => {
+                        let label = e.label;
+                        let base = label.replace(/\b(MoM|YoY|QoQ|m\/m|y\/y|q\/q)\b/gi, '').trim();
+                        base = base.replace(/^[-:]+|[-:]+$/g, '').trim(); 
+                        
+                        if (!ecoGroups[base]) ecoGroups[base] = { original: label, items: [] };
+                        
+                        let term = '';
+                        if (/(MoM|m\/m)/i.test(label)) term = 'MoM';
+                        else if (/(YoY|y\/y)/i.test(label)) term = 'YoY';
+                        else if (/(QoQ|q\/q)/i.test(label)) term = 'QoQ';
+                        
+                        ecoGroups[base].items.push({ term, originalLabel: label, actual: e.actual, forecast: e.forecast });
+                    });
+
+                    Object.keys(ecoGroups).forEach(base => {
+                        let items = ecoGroups[base].items;
+                        let terms = [...new Set(items.map(i => i.term).filter(Boolean))];
+                        
+                        let finalLabel = items[0].originalLabel;
+                        if (terms.length > 1) {
+                            finalLabel = `${base} ${terms.join('/')}`; 
+                        } else if (terms.length === 1 && items.length > 1) {
+                            finalLabel = `${base} ${terms[0]}`;
+                        }
+                        
+                        let tooltipLines = [finalLabel];
+                        items.forEach(item => {
+                            let parts = [];
+                            if (item.forecast) parts.push(`Est: ${item.forecast}`);
+                            if (item.actual) parts.push(`Actual: ${item.actual}`);
+                            
+                            let valStr = parts.join(' | ');
+                            if (valStr) {
+                                let prefix = (items.length > 1 && item.term) ? `[${item.term}] ` : '';
+                                tooltipLines.push(`${prefix}${valStr}`);
+                            }
+                        });
+
+                        const safeTitle = tooltipLines.join('&#10;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                        
+                        // 經濟數據改為淺灰色底
+                        html += `<div class="text-[10px] leading-tight px-1 py-[1px] text-gray-800 bg-gray-100 border border-gray-200 font-medium truncate cursor-pointer hover:bg-gray-200 rounded-sm" title="${safeTitle}">${finalLabel}</div>`;
+                    });
+
+                    // Earnings Events (過濾 2330 若存在 TSM)
+                    let renderEarnings = dayData.earn;
+                    const hasTSM = renderEarnings.some(e => e.label.split('.')[0] === 'TSM');
+                    if (hasTSM) {
+                        renderEarnings = renderEarnings.filter(e => e.label.split('.')[0] !== '2330');
+                    }
+
+                    renderEarnings.forEach(e => {
+                        const safeTitle = e.label.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                        const displaySymbol = e.label; 
+                        // 財報改為淺黃色底
+                        html += `<div class="text-[10px] leading-tight px-1 py-[2px] mt-[2px] rounded-sm bg-yellow-100 text-yellow-800 font-medium truncate border border-yellow-200" title="${safeTitle} Earnings">${displaySymbol}</div>`;
+                    });
+                }
+
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+            
+            document.getElementById(containerId).innerHTML = html;
+        };
+
+        const renderApp = () => {
+            const leftMonthDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+            const rightMonthDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+
+            // 更新 Header 文字
+            const leftStrShort = leftMonthDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+            const rightStrShort = rightMonthDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+            document.getElementById('month-range-label').innerText = `${leftStrShort} ~ ${rightStrShort}`;
+
+            // 更新月曆 Title 文字
+            document.getElementById('left-month-title').innerText = leftMonthDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+            document.getElementById('right-month-title').innerText = rightMonthDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+            // 渲染網格
+            renderCalendarGrid('left-calendar', leftMonthDate);
+            renderCalendarGrid('right-calendar', rightMonthDate);
+        };
+
+        document.getElementById('btn-prev').addEventListener('click', () => {
+            currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+            renderApp();
+        });
+
+        document.getElementById('btn-next').addEventListener('click', () => {
+            currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+            renderApp();
+        });
+
+        // 啟動應用程式
+        window.addEventListener('DOMContentLoaded', () => {
+            loadData();
+        });
+    </script>
+</body>
+</html>
